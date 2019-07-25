@@ -225,7 +225,8 @@ TcpSocketState::TcpSocketState (void)
     m_initialCWnd (0),
     m_initialSsThresh (0),
     m_segmentSize (0),
-    m_congState (CA_OPEN)
+    m_congState (CA_OPEN),
+    m_timestampToEcho (0)
 {
 }
 
@@ -236,7 +237,8 @@ TcpSocketState::TcpSocketState (const TcpSocketState &other)
     m_initialCWnd (other.m_initialCWnd),
     m_initialSsThresh (other.m_initialSsThresh),
     m_segmentSize (other.m_segmentSize),
-    m_congState (other.m_congState)
+    m_congState (other.m_congState),
+    m_timestampToEcho (other.m_timestampToEcho)
 {
 }
 
@@ -1539,6 +1541,7 @@ TcpSocketBase::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
 
       if (m_tcb->m_congState == TcpSocketState::CA_OPEN)
         {
+          m_tcb->m_timestampToEcho = m_timestampToEcho;
           m_congestionControl->PktsAcked (m_tcb, segsAcked, m_lastRtt);
         }
       else if (m_tcb->m_congState == TcpSocketState::CA_DISORDER)
@@ -1546,6 +1549,7 @@ TcpSocketBase::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
           // The network reorder packets. Linux changes the counting lost
           // packet algorithm from FACK to NewReno. We simply go back in Open.
           m_tcb->m_congState = TcpSocketState::CA_OPEN;
+          m_tcb->m_timestampToEcho = m_timestampToEcho;
           m_congestionControl->PktsAcked (m_tcb, segsAcked, m_lastRtt);
           m_dupAckCount = 0;
           m_retransOut = 0;
@@ -1598,6 +1602,7 @@ TcpSocketBase::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
                * previously lost and now successfully received. All others have
                * been processed when they come under the form of dupACKs
                */
+              m_tcb->m_timestampToEcho = m_timestampToEcho;
               m_congestionControl->PktsAcked (m_tcb, 1, m_lastRtt);
 
               NS_LOG_INFO ("Partial ACK for seq " << ackNumber <<
@@ -1618,6 +1623,7 @@ TcpSocketBase::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
                * been processed when they come under the form of dupACKs,
                * except the (maybe) new ACKs which come from a new window
                */
+              m_tcb->m_timestampToEcho = m_timestampToEcho;
               m_congestionControl->PktsAcked (m_tcb, segsAcked, m_lastRtt);
               newSegsAcked = (ackNumber - m_recover) / m_tcb->m_segmentSize;
               m_tcb->m_congState = TcpSocketState::CA_OPEN;
@@ -1631,6 +1637,7 @@ TcpSocketBase::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
         {
           // Go back in OPEN state
           m_isFirstPartialAck = true;
+          m_tcb->m_timestampToEcho = m_timestampToEcho;
           m_congestionControl->PktsAcked (m_tcb, segsAcked, m_lastRtt);
           m_dupAckCount = 0;
           m_retransOut = 0;
@@ -1640,6 +1647,7 @@ TcpSocketBase::ReceivedAck (Ptr<Packet> packet, const TcpHeader& tcpHeader)
 
       if (callCongestionControl)
         {
+          m_tcb->m_timestampToEcho = m_timestampToEcho;
           m_congestionControl->IncreaseWindow (m_tcb, newSegsAcked);
 
           NS_LOG_LOGIC ("Congestion control called: " <<
@@ -2969,6 +2977,7 @@ TcpSocketBase::Retransmit ()
   if (m_tcb->m_congState != TcpSocketState::CA_LOSS)
     {
       m_tcb->m_congState = TcpSocketState::CA_LOSS;
+      m_tcb->m_timestampToEcho = m_timestampToEcho;
       m_tcb->m_ssThresh = m_congestionControl->GetSsThresh (m_tcb, BytesInFlight ());
       m_tcb->m_cWnd = m_tcb->m_segmentSize;
     }
